@@ -1,0 +1,243 @@
+# PipeGen Stage 2: Hardware-Neutral Pipeline Intermediate Representation (Pipeline IR)
+# Project: Real-Time Privacy-Preserving AI-Based Fall Detection System
+# Version: 1.0.0-ir
+
+pipeline_ir:
+  name: "elderly_care_fall_detection_pipeline"
+  version: "1.0.0"
+  description: "End-to-end edge perception pipeline for multi-person pose estimation, tracking, fall analytics, privacy blurring, and MQTT alerting."
+  target_runtimes:
+    - "nvidia_deepstream_6_x"
+    - "nvidia_deepstream_7_x"
+    - "gstreamer_1_20_plus"
+    - "python_edge_runtime"
+
+  global_parameters:
+    batch_size: 1
+    stream_width: 1280
+    stream_height: 720
+    stream_framerate: 30
+    compute_precision: "FP16"
+    enable_profiling: true
+
+  nodes:
+    - id: "source_0"
+      name: "VideoInputSource"
+      type: "SourceNode"
+      plugin_mapping:
+        deepstream: "v4l2src | filesrc | rtspsrc"
+      properties:
+        device: "/dev/video0"
+        caps: "video/x-raw, width=1280, height=720, framerate=30/1"
+        fallback_file: "test_data/demo_fall.mp4"
+      outputs:
+        - name: "video_raw"
+          data_type: "raw_video_buffer"
+
+    - id: "mux_0"
+      name: "StreamMuxer"
+      type: "StreamMuxNode"
+      plugin_mapping:
+        deepstream: "nvstreammux"
+      properties:
+        batch_size: 1
+        width: 1280
+        height: 720
+        batched_push_timeout: 33333 # microseconds (~30 FPS)
+        live_source: 1
+        nvbuf_memory_type: 0 # NVBUF_MEM_CUDA_DEVICE
+      inputs:
+        - name: "in_stream"
+          source_node: "source_0"
+          source_port: "video_raw"
+      outputs:
+        - name: "batched_stream"
+          data_type: "nvbuf_surface_batch"
+
+    - id: "preproc_0"
+      name: "ColorAndResolutionConverter"
+      type: "PreprocessorNode"
+      plugin_mapping:
+        deepstream: "nvvideoconvert"
+      properties:
+        nvbuf_memory_type: 0
+        output_format: "RGBA"
+        interpolation_method: "Bilinear"
+      inputs:
+        - name: "in_batch"
+          source_node: "mux_0"
+          source_port: "batched_stream"
+      outputs:
+        - name: "converted_batch"
+          data_type: "nvbuf_surface_batch"
+
+    - id: "pgie_pose_0"
+      name: "PrimaryPoseInference"
+      type: "InferenceNode"
+      plugin_mapping:
+        deepstream: "nvinfer"
+      properties:
+        model_engine_fp16: "stage4_compiler/models/yolov8n-pose_fp16.engine"
+        model_engine_int8: "stage4_compiler/models/yolov8n-pose_int8.engine"
+        onnx_model: "stage3_model/yolov8n-pose.onnx"
+        network_mode: 2 # 0: FP32, 1: INT8, 2: FP16
+        input_dims: [3, 640, 640]
+        num_detected_classes: 1 # Person
+        keypoints_count: 17
+        confidence_threshold: 0.50
+        nms_iou_threshold: 0.45
+        output_tensor_meta: true
+      inputs:
+        - name: "in_frames"
+          source_node: "preproc_0"
+          source_port: "converted_batch"
+      outputs:
+        - name: "detections_and_keypoints"
+          data_type: "deepstream_metadata_batch"
+
+    - id: "tracker_0"
+      name: "MultiPersonTracker"
+      type: "TrackerNode"
+      plugin_mapping:
+        deepstream: "nvtracker"
+      properties:
+        tracker_algorithm: "NvDCF"
+        config_file: "stage4_compiler/deepstream_configs/nvdcf_tracker_config.txt"
+        tracking_surface_type: 0 # GPU surface
+        enable_past_frame: 1
+        max_active_tracks: 10
+        min_hits: 3
+        max_age_frames: 30
+      inputs:
+        - name: "in_meta"
+          source_node: "pgie_pose_0"
+          source_port: "detections_and_keypoints"
+      outputs:
+        - name: "tracked_objects"
+          data_type: "deepstream_metadata_batch"
+
+    - id: "fall_analytics_0"
+      name: "FallKinematicsAnalyticsEngine"
+      type: "AnalyticsNode"
+      plugin_mapping:
+        deepstream: "gst-dsfallanalytics / python_pad_probe"
+      properties:
+        torso_angle_fall_threshold_deg: 35.0
+        torso_angle_upright_threshold_deg: 60.0
+        aspect_ratio_fall_threshold: 1.15
+        aspect_ratio_upright_threshold: 0.85
+        vertical_descent_velocity_threshold: 0.15
+        persistence_frames: 20
+        recovery_frames: 15
+        cooldown_seconds: 15.0
+        states:
+          - "NORMAL"
+          - "RESTING / SLEEPING"
+          - "POTENTIAL FALL"
+          - "FALL CONFIRMED"
+        safe_rest_zones_enabled: true
+        bed_elevation_ratio: 0.68
+        sudden_collapse_delta_deg: 30.0
+      inputs:
+        - name: "in_tracked_meta"
+          source_node: "tracker_0"
+          source_port: "tracked_objects"
+      outputs:
+        - name: "fall_annotated_meta"
+          data_type: "deepstream_metadata_batch"
+        - name: "alert_events"
+          data_type: "json_event_stream"
+
+    - id: "privacy_filter_0"
+      name: "PrivacyPreservingFaceMasker"
+      type: "PrivacyNode"
+      plugin_mapping:
+        deepstream: "gst-dsprivacy / python_pad_probe"
+      properties:
+        enabled: true
+        method: "gaussian_blur_and_pixelation"
+        blur_kernel_size: 21
+        pixelation_factor: 12
+        face_keypoint_indices: [0, 1, 2, 3, 4] # Nose, Eyes, Ears
+        expand_ratio: 1.35
+      inputs:
+        - name: "in_meta"
+          source_node: "fall_analytics_0"
+          source_port: "fall_annotated_meta"
+      outputs:
+        - name: "anonymized_stream"
+          data_type: "deepstream_metadata_batch"
+
+    - id: "osd_0"
+      name: "OnScreenDisplayVisualizer"
+      type: "OSDNode"
+      plugin_mapping:
+        deepstream: "nvdsosd"
+      properties:
+        process_mode: 0 # GPU
+        display_text: 1
+        display_bbox: 1
+        display_mask: 1
+        font_size: 12
+        badge_palette:
+          NORMAL: [0, 255, 0, 200]
+          POTENTIAL_FALL: [255, 165, 0, 220]
+          FALL_CONFIRMED: [255, 0, 0, 255]
+      inputs:
+        - name: "in_anonymized"
+          source_node: "privacy_filter_0"
+          source_port: "anonymized_stream"
+      outputs:
+        - name: "rendered_surface"
+          data_type: "nvbuf_surface_batch"
+
+    - id: "sink_display_0"
+      name: "LiveVideoDisplaySink"
+      type: "VideoSinkNode"
+      plugin_mapping:
+        deepstream: "nveglglessink / autovideosink / web_webrtc_sink"
+      properties:
+        sync: 0
+        qos: 0
+        fullscreen: false
+      inputs:
+        - name: "in_rendered"
+          source_node: "osd_0"
+          source_port: "rendered_surface"
+
+    - id: "sink_mqtt_0"
+      name: "MQTTAlertDispatcher"
+      type: "AlertSinkNode"
+      plugin_mapping:
+        deepstream: "nvmsgbroker / paho_mqtt_client"
+      properties:
+        broker_address: "localhost"
+        broker_port: 1883
+        topic_alerts: "elderly_care/alerts/fall"
+        topic_telemetry: "elderly_care/telemetry/pipeline"
+        qos: 1
+        payload_format: "JSON"
+      inputs:
+        - name: "in_events"
+          source_node: "fall_analytics_0"
+          source_port: "alert_events"
+
+  connections:
+    - from: "source_0.video_raw"
+      to: "mux_0.in_stream"
+    - from: "mux_0.batched_stream"
+      to: "preproc_0.in_batch"
+    - from: "preproc_0.converted_batch"
+      to: "pgie_pose_0.in_frames"
+    - from: "pgie_pose_0.detections_and_keypoints"
+      to: "tracker_0.in_meta"
+    - from: "tracker_0.tracked_objects"
+      to: "fall_analytics_0.in_tracked_meta"
+    - from: "fall_analytics_0.fall_annotated_meta"
+      to: "privacy_filter_0.in_meta"
+    - from: "privacy_filter_0.anonymized_stream"
+      to: "osd_0.in_anonymized"
+    - from: "osd_0.rendered_surface"
+      to: "sink_display_0.in_rendered"
+    - from: "fall_analytics_0.alert_events"
+      to: "sink_mqtt_0.in_events"

@@ -1,0 +1,37 @@
+{
+  "dataset": "COCO Keypoint 2017",
+  "num_keypoints": 17,
+  "keypoints": [
+    {"id": 0, "name": "nose", "symmetry": "center", "region": "head"},
+    {"id": 1, "name": "left_eye", "symmetry": "left", "region": "head"},
+    {"id": 2, "name": "right_eye", "symmetry": "right", "region": "head"},
+    {"id": 3, "name": "left_ear", "symmetry": "left", "region": "head"},
+    {"id": 4, "name": "right_ear", "symmetry": "right", "region": "head"},
+    {"id": 5, "name": "left_shoulder", "symmetry": "left", "region": "upper_body"},
+    {"id": 6, "name": "right_shoulder", "symmetry": "right", "region": "upper_body"},
+    {"id": 7, "name": "left_elbow", "symmetry": "left", "region": "upper_body"},
+    {"id": 8, "name": "right_elbow", "symmetry": "right", "region": "upper_body"},
+    {"id": 9, "name": "left_wrist", "symmetry": "left", "region": "upper_body"},
+    {"id": 10, "name": "right_wrist", "symmetry": "right", "region": "upper_body"},
+    {"id": 11, "name": "left_hip", "symmetry": "left", "region": "lower_body"},
+    {"id": 12, "name": "right_hip", "symmetry": "right", "region": "lower_body"},
+    {"id": 13, "name": "left_knee", "symmetry": "left", "region": "lower_body"},
+    {"id": 14, "name": "right_knee", "symmetry": "right", "region": "lower_body"},
+    {"id": 15, "name": "left_ankle", "symmetry": "left", "region": "lower_body"},
+    {"id": 16, "name": "right_ankle", "symmetry": "right", "region": "lower_body"}
+  ],
+  "skeleton_edges": [
+    [0, 1], [0, 2], [1, 3], [2, 4],
+    [5, 6], [5, 7], [7, 9], [6, 8], [8, 10],
+    [5, 11], [6, 12], [11, 12],
+    [11, 13], [13, 15], [12, 14], [14, 16]
+  ],
+  "kinematic_pairs": {
+    "torso": {
+      "upper": [5, 6],
+      "lower": [11, 12]
+    },
+    "head": [0, 1, 2, 3, 4],
+    "legs": [[11, 13, 15], [12, 14, 16]]
+  }
+}

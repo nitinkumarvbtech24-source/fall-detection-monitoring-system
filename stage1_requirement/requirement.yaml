@@ -1,0 +1,147 @@
+# PipeGen Stage 1: Formal Requirement Specification
+# Project: Real-Time Privacy-Preserving AI-Based Fall Detection System for Elderly Care
+# Hackathon: Physical AI Hackathon - PipeGen Track A
+# Target Platform: NVIDIA Jetson / NVIDIA GPU (DeepStream + TensorRT)
+
+metadata:
+  project_name: "ElderlyCare-FallGuard-Edge"
+  version: "1.0.0"
+  track: "PipeGen Track A (Vision / Edge AI Track)"
+  domain: "Physical AI & Healthcare Edge Perception"
+  created_at: "2026-10-17T20:58:49+05:30"
+  author: "PipeGen AI Vision Team"
+
+platform:
+  target_hardware:
+    primary: "NVIDIA Jetson Orin Nano / AGX Orin"
+    secondary: "NVIDIA x86_64 GPU (RTX / Data Center)"
+  runtime_framework: "NVIDIA DeepStream SDK 6.x / 7.x"
+  inference_engine: "NVIDIA TensorRT 8.x / 10.x"
+  precision_targets:
+    baseline: "FP16"
+    evaluated_alternative: "INT8 (PTQ Calibration)"
+  performance_budget:
+    target_fps: ">= 30 FPS"
+    max_pipeline_latency_ms: 33.3
+    max_gpu_memory_mb: 1024
+
+inputs:
+  supported_sources:
+    - type: "usb_camera"
+      device_id: "/dev/video0" # index 0
+      resolution: [1280, 720]
+      default_fps: 30
+      primary_demo: true
+    - type: "video_file"
+      formats: ["mp4", "mkv", "avi"]
+      loop: true
+    - type: "rtsp_stream"
+      protocols: ["rtsp", "rtsps"]
+      codec: "H.264 / H.265"
+
+perception_requirements:
+  task: "Human Detection, Multi-Object Tracking & 2D Pose Estimation"
+  model:
+    architecture: "YOLOv8-Pose / YOLO11-Pose"
+    variant: "Nano (lightweight edge-optimized)"
+    keypoints_count: 17
+    keypoints_format: "COCO (Nose, Eyes, Ears, Shoulders, Elbows, Wrists, Hips, Knees, Ankles)"
+    input_resolution: [640, 640]
+  tracking:
+    algorithm: "NvDCF / ByteTrack"
+    max_age_frames: 30
+    min_hits: 3
+    reid_feature_matching: true
+
+fall_detection_logic:
+  states:
+    - name: "NORMAL"
+      description: "Person is standing, walking, sitting, bending, or engaged in typical daily activities."
+    - name: "RESTING / SLEEPING"
+      description: "Person is intentionally lying down horizontally in a safe rest zone (bed or couch) or entered horizontal posture through controlled descent without velocity impact; zero emergency alerts are emitted."
+    - name: "POTENTIAL FALL"
+      description: "Sudden posture change, rapid descent velocity, or horizontal floor collapse detected outside safe resting zones; temporal persistence criteria not yet satisfied."
+    - name: "FALL CONFIRMED"
+      description: "Fallen horizontal posture and low floor vertical position persist continuously beyond configurable temporal threshold."
+
+  decision_metrics:
+    torso_angle:
+      description: "Angle between shoulder-midpoint and hip-midpoint relative to horizontal floor"
+      upright_range_deg: [60.0, 90.0]
+      horizontal_fall_deg: [0.0, 38.0]
+    aspect_ratio:
+      description: "Bounding box width / height"
+      upright_threshold: 0.85
+      fallen_threshold: 1.15
+    vertical_velocity:
+      description: "Downward rate of change of hip/torso centroid normalized by person height per second"
+      fall_descent_trigger: 0.08
+    sudden_collapse_delta:
+      description: "Sudden angular collapse from upright (>62 deg) to recumbent (<38 deg) within 20 frames"
+      collapse_threshold_deg: 30.0
+    safe_rest_zones:
+      description: "Geofenced spatial ROIs designating bed, couch, or recliner where horizontal postures are recognized as safe sleep"
+      enabled: true
+      default_zones:
+        - name: "Primary Bed Zone"
+          roi_normalized: [0.0, 0.45, 0.65, 0.95] # [x1, y1, x2, y2]
+    bed_elevation_ratio:
+      description: "Vertical elevation ratio threshold distinguishing bed surface from floor-level collapse"
+      floor_ground_ratio: 0.80
+    temporal_persistence:
+      description: "Number of consecutive frames person must remain in fallen posture"
+      default_frames: 20
+      configurable_range: [10, 60]
+    recovery_logic:
+      description: "Transition back to NORMAL when torso angle > 60 deg for consecutive recovery frames"
+      recovery_frames: 15
+    cooldown_debouncing:
+      description: "Avoid duplicate alert spam for single confirmed fall event"
+      cooldown_period_seconds: 15.0
+      single_event_per_incident: true
+
+privacy_requirements:
+  edge_isolation:
+    cloud_video_streaming: false
+    inference_location: "100% on-edge device"
+  anonymization:
+    face_blurring:
+      enabled: true
+      method: "Dynamic Gaussian Blur / Pixelation over Head Keypoints (Nose, Eyes, Ears)"
+      fallback_head_ratio: 0.22 # Top 22% of bounding box
+    raw_frame_persistence: false # Raw identifiable frames are never written to disk
+    event_metadata_only: true    # Only structured JSON events are transmitted
+
+outputs:
+  visual_overlay:
+    display_sink: "Live OSD (EGL / X11 / Web Live Stream)"
+    overlays:
+      - "Skeletal Keypoints & Bone Interconnections"
+      - "Person Tracking Bounding Box & Persistent Track ID"
+      - "State Badges (NORMAL: Green, RESTING / SLEEPING: Sky Blue, POTENTIAL FALL: Amber, FALL CONFIRMED: Red)"
+      - "Safe Rest Zone Geofence Overlays (Bed / Couch designated ROIs)"
+      - "Posture Metrics & Fall Confidence"
+      - "Privacy-blurred Facial Mask"
+  actionable_event_json:
+    schema:
+      event: "fall_detected"
+      person_id: "integer"
+      confidence: "float [0.0 - 1.0]"
+      timestamp: "ISO-8601 string"
+      status: "FALL_CONFIRMED"
+      location: "string"
+      metrics:
+        torso_angle_deg: "float"
+        aspect_ratio: "float"
+        descent_velocity: "float"
+        duration_sec: "float"
+  mqtt_alert:
+    enabled: true
+    broker: "localhost / edge broker"
+    port: 1883
+    topics:
+      alerts: "elderly_care/alerts/fall"
+      telemetry: "elderly_care/telemetry/pipeline"
+      heartbeat: "elderly_care/heartbeat"
+    qos: 1
+    retain: false

@@ -1,0 +1,2 @@
+# Message converter schema for fall alert events
+schema = 0

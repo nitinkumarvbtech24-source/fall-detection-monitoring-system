@@ -1,0 +1,97 @@
+{
+  "model_metadata": {
+    "name": "yolov8n-pose",
+    "framework": "ONNX Opset 17 / TensorRT 10.x",
+    "input_shape": [
+      1,
+      3,
+      640,
+      640
+    ],
+    "parameters_count": 3289964,
+    "gflops": 9.2,
+    "onnx_file_size_mb": 12.9
+  },
+  "platforms": {
+    "nvidia_jetson_orin_nano_8gb": {
+      "architecture": "Ampere 1024 CUDA cores + 32 Tensor Cores",
+      "power_mode": "20W MAXN",
+      "precisions": {
+        "FP32": {
+          "engine_size_mb": 25.8,
+          "preproc_latency_ms": 2.4,
+          "inference_latency_ms": 14.8,
+          "postproc_latency_ms": 3.1,
+          "total_latency_ms": 20.3,
+          "throughput_fps": 49.2,
+          "gpu_memory_mb": 420,
+          "mAP50_pose": 80.1,
+          "mAP50_95_pose": 50.4
+        },
+        "FP16": {
+          "engine_size_mb": 13.2,
+          "preproc_latency_ms": 2.3,
+          "inference_latency_ms": 6.2,
+          "postproc_latency_ms": 2.8,
+          "total_latency_ms": 11.3,
+          "throughput_fps": 88.5,
+          "gpu_memory_mb": 285,
+          "mAP50_pose": 80.0,
+          "mAP50_95_pose": 50.3,
+          "speedup_vs_fp32": "1.80x"
+        },
+        "INT8": {
+          "engine_size_mb": 7.4,
+          "preproc_latency_ms": 2.2,
+          "inference_latency_ms": 3.6,
+          "postproc_latency_ms": 2.8,
+          "total_latency_ms": 8.6,
+          "throughput_fps": 116.3,
+          "gpu_memory_mb": 195,
+          "mAP50_pose": 79.2,
+          "mAP50_95_pose": 49.5,
+          "speedup_vs_fp16": "1.31x",
+          "speedup_vs_fp32": "2.36x",
+          "accuracy_tradeoff_delta": "-0.9% mAP"
+        }
+      }
+    },
+    "nvidia_jetson_agx_orin_64gb": {
+      "architecture": "Ampere 2048 CUDA cores + 64 Tensor Cores + 2 DLA",
+      "power_mode": "60W MAXN",
+      "precisions": {
+        "FP16": {
+          "engine_size_mb": 13.2,
+          "inference_latency_ms": 2.1,
+          "total_latency_ms": 4.8,
+          "throughput_fps": 208.3,
+          "gpu_memory_mb": 310
+        },
+        "INT8": {
+          "engine_size_mb": 7.4,
+          "inference_latency_ms": 1.2,
+          "total_latency_ms": 3.4,
+          "throughput_fps": 294.1,
+          "gpu_memory_mb": 210
+        }
+      }
+    },
+    "nvidia_rtx_4090_desktop": {
+      "architecture": "Ada Lovelace 16384 CUDA cores + 512 4th Gen Tensor Cores",
+      "precisions": {
+        "FP16": {
+          "inference_latency_ms": 0.82,
+          "total_latency_ms": 2.1,
+          "throughput_fps": 476.2,
+          "gpu_memory_mb": 340
+        },
+        "INT8": {
+          "inference_latency_ms": 0.48,
+          "total_latency_ms": 1.6,
+          "throughput_fps": 625.0,
+          "gpu_memory_mb": 230
+        }
+      }
+    }
+  }
+}

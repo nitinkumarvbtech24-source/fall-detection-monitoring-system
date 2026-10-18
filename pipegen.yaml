@@ -1,0 +1,58 @@
+# CraftifAI PipeGen Root Configuration
+# Hackathon: Physical AI Hackathon - Track A (Vision / Edge AI)
+# System: Real-Time Privacy-Preserving Fall Detection for Elderly Care
+
+project:
+  name: "ElderlyCare-FallGuard-Edge"
+  version: "1.0.0"
+  description: "End-to-end edge AI vision pipeline for elderly fall detection using pose estimation, multi-frame kinematics, privacy-by-design, DeepStream, and TensorRT."
+  track: "Track A: PipeGen (Vision / Edge AI Track)"
+  target_hardware: "NVIDIA Jetson Orin Nano / AGX Orin / x86 GPU"
+
+stages:
+  stage1_requirement:
+    config: "stage1_requirement/requirement.yaml"
+    documentation: "stage1_requirement/requirements_doc.md"
+
+  stage2_pipeline_ir:
+    ir_yaml: "stage2_pipeline_ir/pipeline.ir.yaml"
+    ir_json: "stage2_pipeline_ir/pipeline.ir.json"
+    validator: "stage2_pipeline_ir/ir_visualizer.py"
+    graph: "stage2_pipeline_ir/pipeline_graph.md"
+
+  stage3_model:
+    architecture: "YOLOv8n-Pose"
+    weights: "yolov8n-pose.pt"
+    onnx_model: "stage3_model/yolov8n-pose.onnx"
+    model_card: "stage3_model/model_card.md"
+    keypoints_schema: "stage3_model/coco_keypoints.json"
+    calibration_dataset: "stage3_model/calibration_data/"
+
+  stage4_compiler:
+    compiler_script: "stage4_compiler/compiler.py"
+    tensorrt_compiler: "stage4_compiler/trt_compiler.py"
+    performance_report: "stage4_compiler/performance_report.md"
+    deepstream_configs:
+      app_config: "stage4_compiler/deepstream_configs/deepstream_app_config.txt"
+      infer_config: "stage4_compiler/deepstream_configs/config_infer_pose.txt"
+      tracker_config: "stage4_compiler/deepstream_configs/nvdcf_tracker_config.txt"
+    compiled_engines:
+      fp16: "stage4_compiler/models/yolov8n-pose_fp16.engine"
+      int8: "stage4_compiler/models/yolov8n-pose_int8.engine"
+
+  stage5_run:
+    cli_entrypoint: "run_pipeline.py"
+    edge_runner: "stage5_run/fallback_runner.py"
+    deepstream_runner: "stage5_run/deepstream_pipeline.py"
+    fall_analytics: "stage5_run/fall_analytics.py"
+    privacy_filter: "stage5_run/privacy_filter.py"
+    mqtt_publisher: "stage5_run/mqtt_alert_publisher.py"
+    web_dashboard: "stage5_run/live_dashboard.py"
+    verification_tests: "test_data/test_fall_detection.py"
+
+outputs:
+  video_stream: "1280x720 @ 30 FPS"
+  mqtt_topic: "elderly_care/alerts/fall"
+  mqtt_telemetry: "elderly_care/telemetry/pipeline"
+  json_event_format: "RFC-8259 compliant structured schema"
+  web_dashboard_url: "http://localhost:8080"

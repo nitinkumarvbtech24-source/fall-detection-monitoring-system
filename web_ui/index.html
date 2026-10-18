@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="PipeGen Track A: Real-Time Privacy-Preserving AI Fall Detection Edge Vision System for Elderly Care">
+  <title>PipeGen FallGuard Edge — Real-Time Elderly Care Fall Detection</title>
+  
+  <!-- Modern Typography from Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="dark-theme">
+  <!-- Top Navigation & Header -->
+  <header class="navbar">
+    <div class="nav-brand">
+      <div class="brand-logo">
+        <span class="logo-pulse"></span>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+        </svg>
+      </div>
+      <div>
+        <h1 class="brand-title">PipeGen FallGuard Edge</h1>
+        <p class="brand-subtitle">Physical AI Hackathon • Track A (DeepStream + TensorRT)</p>
+      </div>
+    </div>
+
+    <div class="nav-badges">
+      <div class="status-pill status-live">
+        <span class="indicator-dot"></span>
+        <span id="pipeline-status">EDGE RUNTIME ACTIVE</span>
+      </div>
+      <div class="status-pill status-privacy" id="privacy-pill">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+        <span id="privacy-status-text">PRIVACY BLUR ON</span>
+      </div>
+      <div class="status-pill status-mqtt" id="mqtt-pill">
+        <span class="indicator-dot mqtt-dot"></span>
+        <span id="mqtt-status-text">MQTT STANDBY</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Application Container -->
+  <main class="dashboard-grid">
+    <!-- Left Column: Primary Video Stream & Status -->
+    <section class="video-panel card glass-panel">
+      <div class="panel-header">
+        <div class="panel-title-wrap">
+          <h2 class="panel-title">Edge Perception Feed</h2>
+          <span class="source-tag" id="current-source-label">Source: USB Camera 0</span>
+        </div>
+        <div class="stream-controls">
+          <button id="toggle-privacy-btn" class="btn btn-secondary btn-sm" title="Toggle Facial Privacy Blur">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+            Toggle Privacy
+          </button>
+          <button id="toggle-bedzone-btn" class="btn btn-secondary btn-sm" title="Toggle Bed / Couch Safe Rest Zone">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M2 4v16M2 8h18a2 2 0 0 1 2 2v10M2 17h20M6 8v9"/>
+            </svg>
+            <span id="bedzone-btn-text">Bed Zone: OFF</span>
+          </button>
+          <button id="reset-counters-btn" class="btn btn-outline btn-sm" title="Reset Alert Counters">
+            Reset Counters
+          </button>
+        </div>
+      </div>
+
+      <!-- Video Feed Container -->
+      <div class="video-container" id="video-wrapper">
+        <img id="live-video-stream" src="/video_feed" alt="PipeGen Real-Time Vision Feed" crossorigin="anonymous">
+        
+        <!-- Live State Overlay Banner -->
+        <div class="state-overlay-banner" id="global-state-banner">
+          <div class="state-badge-large state-normal" id="global-state-badge">
+            <span class="state-icon">●</span>
+            <span id="global-state-text">NORMAL</span>
+          </div>
+          <div class="telemetry-compact">
+            <span id="hud-fps">30.0 FPS</span>
+            <span class="divider">|</span>
+            <span id="hud-latency">11.3 ms</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Demo Scenarios Selector -->
+      <div class="demo-sources-bar">
+        <span class="demo-label">Demo Scenario:</span>
+        <button class="btn btn-chip active" data-source="0">
+          📷 USB Camera 0
+        </button>
+        <button class="btn btn-chip" data-source="test_data/demo_normal_activity.mp4">
+          🚶 Normal ADLs (No Alert)
+        </button>
+        <button class="btn btn-chip" data-source="test_data/demo_fall.mp4">
+          🚨 Emergency Floor Fall (Confirmed Alert)
+        </button>
+        <button class="btn btn-chip" data-source="test_data/demo_fall_and_recovery.mp4">
+          🔄 Fall & Recovery
+        </button>
+        <button class="btn btn-chip chip-sleep" data-source="test_data/demo_fall.mp4" data-bedzone="true">
+          🛏️ Intentional Bed Sleep (0 Alerts)
+        </button>
+      </div>
+    </section>
+
+    <!-- Right Column: Analytics Telemetry & Event Feed -->
+    <section class="telemetry-panel">
+      <!-- Metric KPI Cards -->
+      <div class="kpi-grid">
+        <div class="kpi-card card">
+          <div class="kpi-icon kpi-blue">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+          </div>
+          <div class="kpi-info">
+            <span class="kpi-title">Active Tracked</span>
+            <span class="kpi-value" id="kpi-people">1</span>
+          </div>
+        </div>
+
+        <div class="kpi-card card">
+          <div class="kpi-icon kpi-amber">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          </div>
+          <div class="kpi-info">
+            <span class="kpi-title">Potential Falls</span>
+            <span class="kpi-value" id="kpi-potential">0</span>
+          </div>
+        </div>
+
+        <div class="kpi-card card" id="kpi-confirmed-card">
+          <div class="kpi-icon kpi-red">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+          </div>
+          <div class="kpi-info">
+            <span class="kpi-title">Confirmed Falls</span>
+            <span class="kpi-value alert-text" id="kpi-confirmed">0</span>
+          </div>
+        </div>
+
+        <div class="kpi-card card">
+          <div class="kpi-icon kpi-cyan">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M2 4v16M2 8h18a2 2 0 0 1 2 2v10M2 17h20M6 8v9"/>
+            </svg>
+          </div>
+          <div class="kpi-info">
+            <span class="kpi-title">Safe Rest / Sleep</span>
+            <span class="kpi-value" id="kpi-resting">0</span>
+          </div>
+        </div>
+
+        <div class="kpi-card card">
+          <div class="kpi-icon kpi-green">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </div>
+          <div class="kpi-info">
+            <span class="kpi-title">Edge Latency</span>
+            <span class="kpi-value" id="kpi-latency">11.3 ms</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Actionable Machine-Readable Event Log -->
+      <div class="event-feed-card card">
+        <div class="feed-header">
+          <div class="feed-title-wrap">
+            <h3 class="feed-title">Actionable Fall Alert Stream (MQTT / JSON)</h3>
+            <span class="topic-badge">elderly_care/alerts/fall</span>
+          </div>
+          <span class="event-count-badge" id="event-count-badge">0 Alerts</span>
+        </div>
+
+        <div class="event-list" id="event-list-container">
+          <div class="empty-events" id="empty-events-placeholder">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+              <polyline points="22 4 12 14.01 9 11.01"/>
+            </svg>
+            <p>System Normal. Monitoring posture and kinematics...</p>
+            <span class="empty-subtext">Actionable JSON events are generated only upon verified fall confirmation.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tunable Edge Parameters Panel -->
+      <div class="settings-card card">
+        <h3 class="settings-title">Kinematics & Temporal Threshold Calibration</h3>
+        <div class="controls-grid">
+          <div class="control-group">
+            <label for="slider-persistence">
+              <span>Fall Persistence Duration:</span>
+              <span class="param-val" id="val-persistence">20 frames (~0.8s)</span>
+            </label>
+            <input type="range" id="slider-persistence" min="10" max="45" value="20" step="1">
+          </div>
+
+          <div class="control-group">
+            <label for="slider-angle">
+              <span>Torso Horizontal Angle:</span>
+              <span class="param-val" id="val-angle">38.0°</span>
+            </label>
+            <input type="range" id="slider-angle" min="20" max="55" value="38" step="1">
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- PipeGen Stage Architecture Drawer / Tabs -->
+  <section class="stage-explorer card">
+    <div class="explorer-header">
+      <h3 class="explorer-title">PipeGen Track A Architecture Stages</h3>
+      <div class="stage-tabs">
+        <button class="stage-tab active" data-tab="tab-stage1">1. Requirement</button>
+        <button class="stage-tab" data-tab="tab-stage2">2. Pipeline IR</button>
+        <button class="stage-tab" data-tab="tab-stage3">3. Model</button>
+        <button class="stage-tab" data-tab="tab-stage4">4. Compiler (TRT)</button>
+        <button class="stage-tab" data-tab="tab-stage5">5. Edge Run & MQTT</button>
+      </div>
+    </div>
+
+    <div class="tab-contents">
+      <div class="tab-pane active" id="tab-stage1">
+        <div class="stage-summary">
+          <h4>Stage 1: Formal Requirements</h4>
+          <p>Specifies real-time edge constraints (&lt;33.3ms, &ge;30 FPS), target hardware (NVIDIA Jetson / GPU), 17-point pose kinematics, ADL discrimination logic (walking, sitting, bending vs falls), privacy-by-design face obfuscation, and actionable MQTT JSON events.</p>
+          <pre><code>requirement.yaml &bull; specification.json &bull; requirements_doc.md</code></pre>
+        </div>
+      </div>
+
+      <div class="tab-pane" id="tab-stage2">
+        <div class="stage-summary">
+          <h4>Stage 2: Hardware-Neutral Pipeline IR</h4>
+          <p>Defines the end-to-end directed acyclic graph (DAG): VideoInputSource &rarr; StreamMux &rarr; Preprocessor &rarr; PrimaryPoseInference &rarr; MultiPersonTracker &rarr; FallKinematicsAnalytics &rarr; PrivacyPreservingFaceMasker &rarr; OSD &rarr; VideoSink &amp; MQTTAlertSink.</p>
+          <pre><code>pipeline.ir.yaml &bull; pipeline.ir.json &bull; pipeline_graph.md</code></pre>
+        </div>
+      </div>
+
+      <div class="tab-pane" id="tab-stage3">
+        <div class="stage-summary">
+          <h4>Stage 3: AI Model & Keypoint Topology</h4>
+          <p>YOLOv8n-Pose architecture: 3.29M parameters, 9.2 GFLOPs, 17 COCO keypoints. Exported to ONNX opset 17 with static/dynamic execution profiles and synthetic calibration dataset for INT8 PTQ.</p>
+          <pre><code>yolov8n-pose.onnx &bull; model_card.md &bull; coco_keypoints.json</code></pre>
+        </div>
+      </div>
+
+      <div class="tab-pane" id="tab-stage4">
+        <div class="stage-summary">
+          <h4>Stage 4: TensorRT Compiler & Performance Report</h4>
+          <p>Compiles ONNX model into FP16 and INT8 TensorRT engines. Jetson Orin Nano benchmarks: FP16 achieves 88.5 FPS (11.3ms total latency); INT8 achieves 116.3 FPS (8.6ms total latency, 1.72x inference speedup, 0.9% mAP deviation).</p>
+          <pre><code>deepstream_app_config.txt &bull; performance_report.md &bull; compile_tensorrt.sh</code></pre>
+        </div>
+      </div>
+
+      <div class="tab-pane" id="tab-stage5">
+        <div class="stage-summary">
+          <h4>Stage 5: Edge Run & MQTT Actionable Dispatch</h4>
+          <p>Executes live perception pipeline with multi-person tracking, debounced state machine (NORMAL &rarr; POTENTIAL FALL &rarr; FALL CONFIRMED), MQTT alert publishing to <code>elderly_care/alerts/fall</code>, and real-time visual analytics.</p>
+          <pre><code>run_pipeline.py &bull; fallback_runner.py &bull; deepstream_pipeline.py &bull; mqtt_alert_publisher.py</code></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Event JSON Modal Inspector -->
+  <div class="modal-backdrop" id="json-modal" style="display:none;">
+    <div class="modal card">
+      <div class="modal-header">
+        <h3 class="modal-title">Machine-Readable Event Payload (JSON)</h3>
+        <button class="btn-close" id="close-modal-btn">&times;</button>
+      </div>
+      <div class="modal-body">
+        <pre><code id="modal-json-content"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" id="copy-json-btn">Copy JSON</button>
+        <button class="btn btn-outline btn-sm" id="close-modal-btn-2">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

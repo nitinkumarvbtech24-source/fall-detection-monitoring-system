@@ -1,0 +1,6 @@
+# TRT-10.0.0.0-EntropyCalibration2
+images: 3c01bf00
+/model.0/conv/Conv_output_0: 3d508000
+/model.1/conv/Conv_output_0: 3d624000
+/model.2/cv1/conv/Conv_output_0: 3d712000
+/model.22/cv4.0/cv4.0.2/Conv_output_0: 3e18a000
