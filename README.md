@@ -1,8 +1,12 @@
 # PipeGen FallGuard Edge: Real-Time Privacy-Preserving Fall Detection for Elderly Care
 
-### **Physical AI Hackathon — Track A: PipeGen (Vision / Edge AI Track)**
-**Target Accelerators**: NVIDIA Jetson Orin Nano, Jetson AGX Orin, NVIDIA RTX GPUs  
-**Core Frameworks**: PipeGen, NVIDIA DeepStream SDK 6.x/7.x, NVIDIA TensorRT 10.x, GStreamer, Paho-MQTT, FastAPI  
+### **Physical AI Hackathon: Embedded SF — HackwithBangalore 4.0**
+- **Track**: **Track A — PipeGen (Perception Track)**
+- **Problem Statement**: **Problem 2 — Fall Detection and Elder Care**
+- **Bonus Prize Target**: **Edge Optimization** (INT8 PTQ Quantization on NVIDIA Jetson)
+- **Official Submission Document**: [SUBMISSION.md](SUBMISSION.md)
+- **Target Hardware**: NVIDIA Jetson Orin Nano / AGX Orin / NVIDIA RTX GPUs
+- **Core Frameworks**: CraftifAI PipeGen, NVIDIA DeepStream SDK 6.x/7.x, TensorRT 10.x, GStreamer, Paho-MQTT, FastAPI
 
 ---
 
@@ -73,6 +77,9 @@ This project is built around the **PipeGen** lifecycle stages:
 +-----------------------------------------------------------------------------------------+
 ```
 
+### 2.1 Pipeline IR Node Graph (Hardware-Neutral DAG)
+![Pipeline IR Graph](docs/evidence/pipeline_ir_graph.png)
+
 ---
 
 ## 3. Fall Detection Kinematic Decision Logic
@@ -139,6 +146,8 @@ To respect patient dignity and comply with healthcare data privacy laws:
 
 ## 5. TensorRT & PipeGen Performance Report
 
+![TensorRT Speed Report](docs/evidence/tensorrt_speed_report.png)
+
 Benchmark results compiled from Stage 4 across precision targets:
 
 ### 5.1 Jetson Orin Nano (8GB, 20W MAXN) — Production Edge Target
@@ -189,13 +198,16 @@ Published immediately to MQTT topic `elderly_care/alerts/fall`:
 ---
 
 ## 7. Quickstart & Demonstration Guide
+*All live perception runners operate 100% on-device with zero cloud dependencies.*
+
+![Live Perception Demo](docs/evidence/live_perception_demo.jpg)
 
 ### 7.1 Run Automated Verification Test Suite
-Executes the pipeline through benchmark test scenarios (Normal ADLs, Controlled Fall, and Fall & Recovery):
+Executes the pipeline through benchmark test scenarios (Normal ADLs, Controlled Fall, Fall & Recovery, and Intentional Bed Sleep Discrimination):
 ```bash
 python run_pipeline.py --test
 ```
-*Expected Result: 100% tests pass (3/3 OK) in ~22 seconds, confirming 0 false positives during normal activities and verified debounced alert emission.*
+*Expected Result: 100% tests pass (4/4 OK) in ~30 seconds, confirming 0 false positives during normal activities, 0 false alarms during sleep, and verified debounced alert emission.*
 
 ### 7.2 Launch Interactive Live Web Dashboard
 Spins up the real-time Web Dashboard with live video stream, interactive demo switching, threshold sliders, and JSON alert inspector:
