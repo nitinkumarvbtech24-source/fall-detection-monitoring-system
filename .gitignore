@@ -40,3 +40,6 @@ scratch/
 
 # Logs & temp
 *.log
+web_ui/snapshots/*.jpg
+web_ui/snapshots/*.png
+!web_ui/snapshots/.gitkeep

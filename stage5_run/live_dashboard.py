@@ -10,7 +10,7 @@ import time
 import asyncio
 import threading
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 
 import uvicorn
 from fastapi import FastAPI, Response, WebSocket, WebSocketDisconnect
@@ -38,6 +38,16 @@ connected_websockets: List[WebSocket] = []
 event_history: List[dict] = []
 current_source = "0"
 is_streaming = True
+
+active_alarm: Dict[str, Any] = {
+    "active": False,
+    "silenced": False,
+    "last_fall_time": None,
+    "person_id": None,
+    "screenshot_url": None,
+    "confidence": 0.0,
+    "location": "Room 101 - Primary Care Area"
+}
 
 class ThresholdUpdate(BaseModel):
     persistence_frames: Optional[int] = None
@@ -154,12 +164,53 @@ def get_telemetry():
             "mqtt_connected": pipeline_instance.alert_publisher.is_connected if pipeline_instance.alert_publisher else False,
             "persistence_frames": pipeline_instance.analytics.persistence_frames,
             "torso_angle_threshold": pipeline_instance.analytics.torso_angle_fall_threshold,
-            "safe_zone_enabled": len(pipeline_instance.analytics.safe_rest_zones) > 0
+            "safe_zone_enabled": len(pipeline_instance.analytics.safe_rest_zones) > 0,
+            "alarm_active": active_alarm["active"],
+            "alarm_silenced": active_alarm["silenced"],
+            "latest_screenshot": active_alarm["screenshot_url"],
+            "latest_fall_time": active_alarm["last_fall_time"]
         }
 
 @app.get("/api/events")
 def get_events():
     return JSONResponse(content=event_history)
+
+@app.get("/api/alert_status")
+def get_alert_status():
+    return JSONResponse(content=active_alarm)
+
+@app.post("/api/alerts/silence")
+def silence_alert():
+    global active_alarm
+    active_alarm["active"] = False
+    active_alarm["silenced"] = True
+    with pipeline_lock:
+        if pipeline_instance:
+            pipeline_instance.silence_alarm()
+
+    # Broadcast silence event to all connected WebSockets
+    for ws in list(connected_websockets):
+        try:
+            asyncio.run(ws.send_json({"type": "alarm_silenced", "data": active_alarm}))
+        except Exception:
+            pass
+    return {"status": "success", "message": "Emergency alert silenced and acknowledged by caregiver", "active_alarm": active_alarm}
+
+@app.get("/api/snapshots")
+def list_snapshots():
+    snapshots_dir = Path(__file__).parent.parent / "web_ui" / "snapshots"
+    if not snapshots_dir.exists():
+        return JSONResponse(content=[])
+
+    files = []
+    for f in sorted(snapshots_dir.glob("*.jpg"), key=lambda p: p.stat().st_mtime, reverse=True):
+        files.append({
+            "filename": f.name,
+            "url": f"/snapshots/{f.name}",
+            "size_kb": round(f.stat().st_size / 1024, 1),
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(f.stat().st_mtime))
+        })
+    return JSONResponse(content=files)
 
 @app.post("/api/controls/privacy")
 def update_privacy(data: PrivacyUpdate):
@@ -197,12 +248,22 @@ def update_source(data: SourceUpdate):
 
 @app.post("/api/controls/reset")
 def reset_counters():
+    global active_alarm
     with pipeline_lock:
         if pipeline_instance:
             pipeline_instance.analytics.total_potential_falls = 0
             pipeline_instance.analytics.total_confirmed_falls = 0
+            pipeline_instance.silence_alarm()
+    active_alarm["active"] = False
+    active_alarm["silenced"] = False
+    active_alarm["screenshot_url"] = None
     event_history.clear()
-    return {"status": "success", "message": "Counters and events cleared"}
+    for ws in list(connected_websockets):
+        try:
+            asyncio.run(ws.send_json({"type": "alarm_reset", "data": active_alarm}))
+        except Exception:
+            pass
+    return {"status": "success", "message": "Counters, events, and alarms cleared"}
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -222,6 +283,23 @@ async def websocket_endpoint(websocket: WebSocket):
 
 def on_fall_event_callback(event_dict: dict):
     """Called whenever the fall analytics engine confirms a fall."""
+    global active_alarm
+    screenshot_url = event_dict.get("screenshot_url")
+    if not screenshot_url and pipeline_instance:
+        screenshot_url = pipeline_instance.capture_screenshot(person_id=event_dict.get("person_id", 1))
+        event_dict["screenshot_url"] = screenshot_url
+
+    event_dict["alarm_active"] = True
+    active_alarm = {
+        "active": True,
+        "silenced": False,
+        "last_fall_time": event_dict.get("timestamp", time.strftime("%Y-%m-%dT%H:%M:%S")),
+        "person_id": event_dict.get("person_id", 1),
+        "screenshot_url": screenshot_url,
+        "confidence": event_dict.get("confidence", 0.95),
+        "location": event_dict.get("location", "Elderly Care Room 101")
+    }
+
     event_history.insert(0, event_dict)
     # Broadcast to all connected WebSockets
     for ws in list(connected_websockets):
@@ -259,11 +337,16 @@ def start_dashboard(
     # Serve static assets from web_ui
     static_dir = Path(__file__).parent.parent / "web_ui"
     static_dir.mkdir(parents=True, exist_ok=True)
+    snapshots_dir = static_dir / "snapshots"
+    snapshots_dir.mkdir(parents=True, exist_ok=True)
+
+    app.mount("/snapshots", StaticFiles(directory=str(snapshots_dir)), name="snapshots")
     app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
 
     print(f"\n==================================================================")
     print(f" PipeGen FallGuard Edge Web Dashboard running at: http://localhost:{port}")
     print(f" Active Source: {current_source}")
+    print(f" Fall Snapshots Directory: {snapshots_dir}")
     print(f"==================================================================\n")
 
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")

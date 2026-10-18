@@ -23,6 +23,8 @@ class FallAlertEvent(BaseModel):
     location: str = Field(default="Elderly Care Room 101", description="Camera deployment location")
     metrics: FallMetrics = Field(..., description="Detailed posture and kinematic measurements")
     privacy_applied: bool = Field(default=True, description="Indicates if facial privacy blurring was applied")
+    screenshot_url: Optional[str] = Field(default=None, description="URL or relative path to captured fall screenshot")
+    alarm_state: Optional[str] = Field(default="TRIGGERED", description="Alert sound and emergency indicator status: TRIGGERED, SILENCED")
 
 class PipelineTelemetry(BaseModel):
     timestamp: str

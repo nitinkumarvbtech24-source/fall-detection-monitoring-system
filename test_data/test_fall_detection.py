@@ -210,5 +210,67 @@ class TestFallDetectionPipeline(unittest.TestCase):
         self.assertEqual(len(dispatched_alerts), 0, "Sleeping dispatched an emergency alert!")
         print("[+] PASS: Sleeping/resting identified accurately with ZERO false alarms.")
 
+    def test_05_straight_fall_longitudinal_detection(self):
+        print("\n---------------------------------------------------------")
+        print("TEST 5: Straight Longitudinal Fall (Depth Axis on Floor outside Bed Zone)")
+        print("---------------------------------------------------------")
+        from stage5_run.fall_analytics import FallAnalyticsEngine
+        import numpy as np
+
+        dispatched_alerts = []
+        class MockPublisher:
+            def publish_fall_alert(self, ev):
+                dispatched_alerts.append(ev)
+
+        engine = FallAnalyticsEngine(
+            alert_publisher=MockPublisher(),
+            persistence_frames=15,
+            safe_rest_zones=[{"x1": 800, "y1": 100, "x2": 1200, "y2": 400}], # Bed is elsewhere
+            screenshot_provider=lambda tid: "/snapshots/test_straight_fall.jpg"
+        )
+
+        # Exact posture from user's webcam:
+        # AR = 2.11, head further back (smaller y), shoulders closer (larger y), hips at bottom
+        # Width: 422, Height: 200 -> AR: 2.11
+        bbox = np.array([100.0, 400.0, 522.0, 600.0])
+        # 17 keypoints
+        kpts = np.zeros((17, 3), dtype=np.float32)
+        # Head keypoints (indices 0..4) at y=420
+        for i in range(5):
+            kpts[i] = [280.0 + i * 5, 420.0, 0.9]
+        # Shoulders (5, 6) at y=460 (10+ px below head in 2D perspective)
+        kpts[5] = [220.0, 460.0, 0.9] # L shoulder
+        kpts[6] = [340.0, 460.0, 0.9] # R shoulder
+        # Hips (11, 12) at y=550 (below shoulders)
+        kpts[11] = [250.0, 550.0, 0.9] # L hip
+        kpts[12] = [310.0, 550.0, 0.9] # R hip
+
+        det = {
+            "track_id": 3,
+            "bbox": bbox,
+            "confidence": 0.92,
+            "keypoints": kpts
+        }
+
+        # Process frames simulating persistence on floor
+        states_seen = []
+        for f in range(25):
+            dets_out = engine.process_frame_detections([det], frame_time=1000.0 + f * 0.033)
+            states_seen.append(dets_out[0]["fall_state"])
+
+        print(f"[*] States seen during straight fall: {set(states_seen)}")
+        print(f"[*] Final Torso Angle: {dets_out[0]['torso_angle']}°")
+        print(f"[*] Final Aspect Ratio: {dets_out[0]['aspect_ratio']}")
+        print(f"[*] Total Confirmed Falls: {engine.total_confirmed_falls}")
+        print(f"[*] Dispatched Alerts: {len(dispatched_alerts)}")
+
+        self.assertIn("POTENTIAL FALL", states_seen, "Straight fall should enter POTENTIAL FALL!")
+        self.assertIn("FALL CONFIRMED", states_seen, "Straight fall should be confirmed!")
+        self.assertEqual(dets_out[0]["fall_state"], "FALL CONFIRMED", "Final state must be FALL CONFIRMED!")
+        self.assertLessEqual(dets_out[0]["torso_angle"], 15.0, "Torso angle must reflect horizontal ground posture, not 75°!")
+        self.assertEqual(len(dispatched_alerts), 1, "Expected exactly 1 dispatched fall alert for straight fall!")
+        print("[+] PASS: Straight longitudinal fall on floor successfully confirmed as emergency fall!")
+
 if __name__ == "__main__":
     unittest.main()
+

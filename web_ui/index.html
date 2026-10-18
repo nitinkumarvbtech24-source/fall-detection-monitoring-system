@@ -14,6 +14,33 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="dark-theme">
+  <!-- Persistent High-Visibility Emergency Alert Top Bar (Sounds & Flashes until switched off) -->
+  <aside class="emergency-global-bar" id="emergency-global-bar" style="display: none;" role="alert" aria-live="assertive">
+    <div class="emergency-bar-content">
+      <div class="emergency-bar-left">
+        <div class="emergency-symbol-pulse">
+          <span class="pulse-beacon"></span>
+          <span class="symbol-text">⚠️</span>
+        </div>
+        <div class="emergency-text-group">
+          <div class="emergency-headline-wrap">
+            <strong class="emergency-headline">CRITICAL EMERGENCY: FALL DETECTED IN CAMERA FEED!</strong>
+            <span class="emergency-tag-pulse">SIREN ACTIVE</span>
+          </div>
+          <span class="emergency-subline" id="emergency-subline">Continuous audible alarm is sounding. Caregiver action is required immediately.</span>
+        </div>
+      </div>
+      <div class="emergency-bar-actions">
+        <button id="view-screenshot-bar-btn" class="btn btn-secondary btn-sm" title="View captured fall verification screenshot">
+          📸 View Screenshot
+        </button>
+        <button id="switch-off-alarm-bar-btn" class="btn btn-danger btn-pulse" title="Switch off alert sound and acknowledge emergency">
+          🔕 SWITCH OFF ALARM
+        </button>
+      </div>
+    </div>
+  </aside>
+
   <!-- Top Navigation & Header -->
   <header class="navbar">
     <div class="nav-brand">
@@ -30,6 +57,13 @@
     </div>
 
     <div class="nav-badges">
+      <button id="test-siren-btn" class="btn btn-outline btn-sm test-siren-btn" title="Test Web Audio Emergency Alarm Siren">
+        🔊 Test Siren
+      </button>
+      <div class="status-pill status-alarm" id="alarm-pill">
+        <span class="indicator-dot alarm-dot"></span>
+        <span id="alarm-status-text">SIREN ARMED</span>
+      </div>
       <div class="status-pill status-live">
         <span class="indicator-dot"></span>
         <span id="pipeline-status">EDGE RUNTIME ACTIVE</span>
@@ -92,6 +126,21 @@
             <span class="divider">|</span>
             <span id="hud-latency">11.3 ms</span>
           </div>
+        </div>
+
+        <!-- In-Video Emergency Alert Symbol Overlay -->
+        <div class="in-video-alert-overlay" id="in-video-alert-overlay" style="display: none;">
+          <div class="alert-symbol-beacon">
+            <span class="beacon-ring"></span>
+            <span class="beacon-symbol">⚠️</span>
+          </div>
+          <div class="in-video-alert-info">
+            <strong class="in-video-alert-title">EMERGENCY: FALL DETECTED</strong>
+            <span class="in-video-alert-desc">Audible siren is active • Immediate assistance required</span>
+          </div>
+          <button class="btn btn-danger btn-sm in-video-silence-btn" id="in-video-silence-btn" title="Switch off alarm siren">
+            🔕 SWITCH OFF ALARM
+          </button>
         </div>
       </div>
 
@@ -245,6 +294,7 @@
         <button class="stage-tab" data-tab="tab-stage3">3. Model</button>
         <button class="stage-tab" data-tab="tab-stage4">4. Compiler (TRT)</button>
         <button class="stage-tab" data-tab="tab-stage5">5. Edge Run & MQTT</button>
+        <button class="stage-tab" data-tab="tab-snapshots">📸 Fall Snapshots (<span id="snapshots-tab-count">0</span>)</button>
       </div>
     </div>
 
@@ -288,8 +338,134 @@
           <pre><code>run_pipeline.py &bull; fallback_runner.py &bull; deepstream_pipeline.py &bull; mqtt_alert_publisher.py</code></pre>
         </div>
       </div>
+
+      <!-- Tab: Automated Fall Verification Snapshots Gallery -->
+      <div class="tab-pane" id="tab-snapshots">
+        <div class="snapshots-pane-header">
+          <div>
+            <h4 class="snapshots-title">Automated Fall Verification Snapshots Gallery</h4>
+            <p class="snapshots-subtitle">High-resolution frame captures with OSD pose skeleton & bounding box annotations triggered upon verified fall detection.</p>
+          </div>
+          <button id="refresh-snapshots-btn" class="btn btn-outline btn-sm">🔄 Refresh Gallery</button>
+        </div>
+        <div class="snapshots-grid" id="snapshots-gallery-grid">
+          <div class="empty-snapshots" id="empty-snapshots-msg">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              <circle cx="8.5" cy="8.5" r="1.5"/>
+              <polyline points="21 15 16 10 5 21"/>
+            </svg>
+            <p>No fall snapshots captured yet in this session.</p>
+            <span>Screenshots are automatically saved with timestamp overlays whenever a verified fall alert occurs.</span>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
+
+  <!-- Emergency Fall Detection Modal with Screenshot Preview, Alert Symbol & Switch Off Button -->
+  <div class="modal-backdrop emergency-modal-backdrop" id="emergency-modal" style="display:none;" role="dialog" aria-modal="true">
+    <div class="modal card emergency-modal-card">
+      <div class="emergency-modal-header">
+        <div class="emergency-title-group">
+          <div class="emergency-icon-animated">
+            <span class="alert-pulse-halo"></span>
+            <span class="alert-symbol-main">⚠️</span>
+          </div>
+          <div>
+            <h2 class="emergency-modal-title">CRITICAL ALERT: CONFIRMED FALL DETECTED!</h2>
+            <p class="emergency-modal-subtitle">Elderly Care Room 101 • Edge Kinematics Verification System</p>
+          </div>
+        </div>
+        <button class="btn-close" id="minimize-emergency-modal-btn" title="Minimize modal (Emergency siren will continue sounding until switched off)">&times;</button>
+      </div>
+
+      <div class="emergency-modal-body">
+        <div class="alert-status-callout">
+          <div class="siren-sound-indicator">
+            <span class="sound-wave wave1"></span>
+            <span class="sound-wave wave2"></span>
+            <span class="sound-wave wave3"></span>
+            <strong class="siren-text" id="siren-banner-text">🚨 Emergency Alarm Siren is Sounding Continuously!</strong>
+          </div>
+          <p class="siren-subtext">This audible siren and visual emergency indicator will NOT turn off automatically. Someone must physically switch it off below.</p>
+        </div>
+
+        <!-- Captured Screenshot Showcase -->
+        <div class="screenshot-showcase card">
+          <div class="screenshot-meta-bar">
+            <span class="screenshot-badge">📸 FALL VERIFICATION SCREENSHOT</span>
+            <span class="screenshot-timestamp" id="screenshot-timestamp-label">--:--:--</span>
+          </div>
+          <div class="screenshot-frame-wrap" id="screenshot-frame-wrap">
+            <img id="emergency-screenshot-img" src="" alt="Captured Fall Detection Verification Snapshot" class="screenshot-img">
+            <div class="screenshot-loading" id="screenshot-loading">
+              <span class="spinner"></span>
+              <span>Capturing edge verification snapshot...</span>
+            </div>
+          </div>
+          <div class="screenshot-actions">
+            <a id="download-screenshot-btn" class="btn btn-secondary btn-sm" download="fall_snapshot.jpg" href="#">
+              💾 Download Screenshot
+            </a>
+            <button id="expand-screenshot-btn" class="btn btn-outline btn-sm">
+              🔍 Inspect Fullscreen
+            </button>
+          </div>
+        </div>
+
+        <!-- Metrics Summary Grid -->
+        <div class="fall-metrics-summary">
+          <div class="metric-pill">
+            <span class="m-label">Tracked Individual:</span>
+            <strong class="m-val" id="alert-person-id">Person #1</strong>
+          </div>
+          <div class="metric-pill">
+            <span class="m-label">Fall Confidence:</span>
+            <strong class="m-val alert-red-text" id="alert-confidence">96%</strong>
+          </div>
+          <div class="metric-pill">
+            <span class="m-label">Torso Angle:</span>
+            <strong class="m-val" id="alert-torso">18.5° (Horizontal)</strong>
+          </div>
+          <div class="metric-pill">
+            <span class="m-label">Posture Status:</span>
+            <strong class="m-val alert-red-text">RECUMBENT COLLAPSE</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- Primary SWITCH OFF ALARM Action Button -->
+      <div class="emergency-modal-footer">
+        <button id="switch-off-alarm-btn" class="btn btn-emergency-switch" title="Silence the alarm siren and acknowledge fall alert">
+          <span class="switch-icon">🔕</span>
+          <div class="switch-text-group">
+            <span class="switch-title">SWITCH OFF ALARM</span>
+            <span class="switch-sub">Caregiver Acknowledge & Silence Siren</span>
+          </div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fullscreen Screenshot Viewer Modal -->
+  <div class="modal-backdrop" id="image-viewer-modal" style="display:none;" role="dialog" aria-modal="true">
+    <div class="image-viewer-card card">
+      <div class="viewer-header">
+        <h3 class="viewer-title" id="viewer-title">📸 Fall Verification Screenshot (Full Resolution)</h3>
+        <button class="btn-close" id="close-viewer-btn">&times;</button>
+      </div>
+      <div class="viewer-body">
+        <img id="viewer-img" src="" alt="Full Resolution Snapshot" class="viewer-img">
+      </div>
+      <div class="viewer-footer">
+        <a id="viewer-download-link" class="btn btn-secondary btn-sm" download="fall_snapshot.jpg" href="#">
+          💾 Download Full Quality Image
+        </a>
+        <button class="btn btn-outline btn-sm" id="close-viewer-btn-2">Close</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Event JSON Modal Inspector -->
   <div class="modal-backdrop" id="json-modal" style="display:none;">

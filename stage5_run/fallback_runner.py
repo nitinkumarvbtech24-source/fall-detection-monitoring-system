@@ -9,8 +9,16 @@ import cv2
 import time
 import json
 import logging
+import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, Generator, Tuple, List
+
+try:
+    import winsound
+    WINSOUND_AVAILABLE = True
+except ImportError:
+    WINSOUND_AVAILABLE = False
 
 import numpy as np
 from ultralytics import YOLO
@@ -43,6 +51,18 @@ class EdgeFallGuardPipeline:
         self.enable_mqtt = enable_mqtt
         self.show_display = show_display
 
+        # Root directories & snapshot storage
+        self.root_dir = Path(__file__).parent.parent
+        self.snapshots_dir = self.root_dir / "web_ui" / "snapshots"
+        self.snapshots_dir.mkdir(parents=True, exist_ok=True)
+
+        self.last_frame: Optional[np.ndarray] = None
+        self.last_rendered_frame: Optional[np.ndarray] = None
+        self.last_snapshot_url: Optional[str] = None
+        self.alarm_active: bool = False
+        self.alarm_silenced: bool = False
+        self._alarm_thread: Optional[threading.Thread] = None
+
         # Resolve model path
         if model_path is None:
             local_model = Path(__file__).parent.parent / "yolov8n-pose.pt"
@@ -66,7 +86,8 @@ class EdgeFallGuardPipeline:
             alert_publisher=self.alert_publisher,
             torso_angle_fall_threshold=torso_angle_threshold,
             persistence_frames=persistence_frames,
-            safe_rest_zones=safe_rest_zones
+            safe_rest_zones=safe_rest_zones,
+            screenshot_provider=self.capture_screenshot
         )
         self.privacy_filter = PrivacyFilter(enabled=enable_privacy)
         self.osd = VisualAnalyticsOSD()
@@ -76,6 +97,82 @@ class EdgeFallGuardPipeline:
         self.latency_ms = 0.0
         self.frame_count = 0
         self.is_running = False
+
+    def capture_screenshot(self, person_id: Optional[int] = None, prefix: str = "fall_alert") -> Optional[str]:
+        """
+        Captures and saves a high-resolution snapshot with visual alert annotations to web_ui/snapshots.
+        Returns relative URL accessible by the web dashboard (e.g. /snapshots/fall_alert_person_1_20261018_171120.jpg).
+        """
+        try:
+            self.snapshots_dir.mkdir(parents=True, exist_ok=True)
+            ts_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            id_str = f"_person_{person_id}" if person_id is not None else ""
+            filename = f"{prefix}{id_str}_{ts_str}.jpg"
+            filepath = self.snapshots_dir / filename
+
+            # Prefer rendered frame with OSD overlay, fallback to last raw frame
+            frame_to_save = self.last_rendered_frame if self.last_rendered_frame is not None else self.last_frame
+            if frame_to_save is not None:
+                snap = frame_to_save.copy()
+                h, w = snap.shape[:2]
+
+                # Render Emergency Header Banner with Alert Symbol directly on the saved screenshot
+                overlay = snap.copy()
+                cv2.rectangle(overlay, (0, 0), (w, 54), (18, 18, 190), -1)
+                cv2.addWeighted(overlay, 0.88, snap, 0.12, 0, snap)
+                cv2.line(snap, (0, 54), (w, 54), (0, 40, 255), 2)
+
+                cv2.putText(snap, "[!] EMERGENCY: FALL CONFIRMED", (18, 36),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.82, (255, 255, 255), 2, cv2.LINE_AA)
+                time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                cv2.putText(snap, f"Track #{person_id or 1} | {time_str}",
+                            (max(10, w - 380), 34), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (220, 230, 255), 1, cv2.LINE_AA)
+
+                cv2.imwrite(str(filepath), snap)
+                rel_url = f"/snapshots/{filename}"
+                self.last_snapshot_url = rel_url
+                print(f"[📸 SCREENSHOT CAPTURED] Saved verified fall image: {filepath}")
+
+                # Trigger audible siren until switched off
+                if not self.alarm_silenced:
+                    self.trigger_alarm()
+
+                return rel_url
+        except Exception as e:
+            logger.error(f"[!] Error saving fall screenshot: {e}")
+        return None
+
+    def trigger_alarm(self):
+        """Activates continuous audible emergency siren until someone switches it off."""
+        if self.alarm_active:
+            return
+        self.alarm_active = True
+        self.alarm_silenced = False
+        print("\n🚨 [ALARM ACTIVE] Emergency fall alert sound triggered! Playing until switched off...")
+        if WINSOUND_AVAILABLE and (self._alarm_thread is None or not self._alarm_thread.is_alive()):
+            self._alarm_thread = threading.Thread(target=self._run_cli_siren, daemon=True)
+            self._alarm_thread.start()
+
+    def silence_alarm(self):
+        """Switches off / silences the emergency alarm sound."""
+        self.alarm_active = False
+        self.alarm_silenced = True
+        print("[🔕 ALARM SWITCHED OFF] Emergency alert siren has been muted by caregiver.")
+
+    def _run_cli_siren(self):
+        """Alternating two-tone emergency buzzer loop (Windows winsound)."""
+        while self.alarm_active:
+            try:
+                winsound.Beep(950, 220)
+                if not self.alarm_active:
+                    break
+                time.sleep(0.08)
+                winsound.Beep(700, 220)
+                if not self.alarm_active:
+                    break
+                time.sleep(0.08)
+            except Exception:
+                break
 
     def set_privacy(self, enabled: bool):
         self.enable_privacy = enabled
@@ -115,6 +212,7 @@ class EdgeFallGuardPipeline:
         Runs complete perception pipeline on a single frame:
         Inference -> Tracking -> Fall Analytics -> Privacy Masking -> OSD Overlay
         """
+        self.last_frame = frame
         t0 = time.time()
         
         # 1. AI Pose Estimation Inference
@@ -165,6 +263,7 @@ class EdgeFallGuardPipeline:
             safe_rest_zones=self.analytics.safe_rest_zones
         )
 
+        self.last_rendered_frame = rendered_frame
         return rendered_frame, analyzed_detections
 
     def run_live(self):
@@ -174,7 +273,7 @@ class EdgeFallGuardPipeline:
 
         print("=================================================================")
         print(f" PipeGen FallGuard Edge: Live Perception Running ({self.source})")
-        print(" Press 'q' to exit | 'p' to toggle Privacy Blur | 'r' to reset falls")
+        print(" Press 'q' to exit | 's' to switch off alarm | 'p' to toggle Privacy | 'r' to reset")
         print("=================================================================")
 
         prev_time = time.time()
@@ -201,17 +300,37 @@ class EdgeFallGuardPipeline:
                 rendered_frame, detections = self.process_frame(frame)
 
                 if self.show_display:
-                    cv2.imshow("PipeGen FallGuard Edge - Live Visual Analytics", rendered_frame)
+                    display_frame = rendered_frame.copy()
+                    
+                    # Render Emergency Flashing Alert Symbol Banner when Alarm is Active
+                    if self.alarm_active:
+                        h_f, w_f = display_frame.shape[:2]
+                        flash_color = (0, 0, 255) if int(time.time() * 3) % 2 == 0 else (0, 160, 255)
+                        # Emergency outer border
+                        cv2.rectangle(display_frame, (0, 0), (w_f - 1, h_f - 1), flash_color, 6)
+                        # Bottom warning banner with Alert Symbol
+                        banner_y1 = max(10, h_f - 65)
+                        cv2.rectangle(display_frame, (10, banner_y1), (w_f - 10, h_f - 10), (15, 15, 22), -1)
+                        cv2.rectangle(display_frame, (10, banner_y1), (w_f - 10, h_f - 10), flash_color, 2)
+                        cv2.putText(display_frame, "[!] EMERGENCY: FALL DETECTED! ALARM SOUNDING", (25, h_f - 28),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.68, flash_color, 2, cv2.LINE_AA)
+                        cv2.putText(display_frame, "Press 's' to SWITCH OFF ALARM", (max(300, w_f - 380), h_f - 28),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.60, (255, 255, 255), 2, cv2.LINE_AA)
+
+                    cv2.imshow("PipeGen FallGuard Edge - Live Visual Analytics", display_frame)
                     key = cv2.waitKey(1) & 0xFF
                     if key == ord('q'):
                         break
+                    elif key == ord('s'):
+                        self.silence_alarm()
                     elif key == ord('p'):
                         self.set_privacy(not self.enable_privacy)
                         print(f"[*] Privacy Face Masking toggled: {self.enable_privacy}")
                     elif key == ord('r'):
+                        self.silence_alarm()
                         self.analytics.total_confirmed_falls = 0
                         self.analytics.total_potential_falls = 0
-                        print("[*] Analytics fall counters reset.")
+                        print("[*] Analytics fall counters and alarms reset.")
 
         finally:
             cap.release()

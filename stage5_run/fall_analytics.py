@@ -8,7 +8,7 @@ import math
 import time
 from collections import deque
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Callable
 
 import numpy as np
 
@@ -43,14 +43,15 @@ class FallAnalyticsEngine:
         alert_publisher: Optional[MQTTAlertPublisher] = None,
         torso_angle_fall_threshold: float = 38.0,
         torso_angle_upright_threshold: float = 62.0,
-        aspect_ratio_fall_threshold: float = 1.15,
+        aspect_ratio_fall_threshold: float = 1.10,
         aspect_ratio_upright_threshold: float = 0.85,
         vertical_velocity_threshold: float = 0.08,
         persistence_frames: int = 20,
         recovery_frames: int = 15,
         cooldown_seconds: float = 15.0,
         bed_elevation_ratio: float = 0.68,
-        safe_rest_zones: Optional[List[dict]] = None
+        safe_rest_zones: Optional[List[dict]] = None,
+        screenshot_provider: Optional[Callable[[int], Optional[str]]] = None
     ):
         self.alert_publisher = alert_publisher
         self.torso_angle_fall_threshold = torso_angle_fall_threshold
@@ -63,6 +64,7 @@ class FallAnalyticsEngine:
         self.cooldown_seconds = cooldown_seconds
         self.bed_elevation_ratio = bed_elevation_ratio
         self.safe_rest_zones = safe_rest_zones or []
+        self.screenshot_provider = screenshot_provider
 
         self.person_states: Dict[int, PersonKinematicState] = {}
         self.total_potential_falls = 0
@@ -156,7 +158,10 @@ class FallAnalyticsEngine:
         head_is_upright = False
 
         # 1. Check Head vs Shoulders orientation (prevents desk/webcam crop false alarms)
-        if kpts is not None and len(kpts) >= 7:
+        # CRITICAL: Only consider head_is_upright if the person's aspect ratio is upright/compact (aspect_ratio < 1.05).
+        # In a straight fall (person lying along camera depth axis with AR >= 1.05), their head appears above shoulders
+        # in 2D purely due to perspective projection along the ground plane. They are physically NOT upright!
+        if aspect_ratio < 1.05 and kpts is not None and len(kpts) >= 7:
             head_pts = [k for k in kpts[:5] if k[2] > 0.25]
             sh_pts = [k for k in [kpts[5], kpts[6]] if k[2] > 0.25]
 
@@ -167,41 +172,47 @@ class FallAnalyticsEngine:
                 if (avg_sh_y - avg_head_y) > 10.0:
                     head_is_upright = True
 
-            # 2. If hips are visible, calculate anatomical torso angle
-            if len(kpts) >= 13:
-                l_sh, r_sh = kpts[5], kpts[6]
-                l_hip, r_hip = kpts[11], kpts[12]
+        # 2. If hips are visible, calculate anatomical torso angle
+        if kpts is not None and len(kpts) >= 13:
+            l_sh, r_sh = kpts[5], kpts[6]
+            l_hip, r_hip = kpts[11], kpts[12]
 
-                valid_shoulders = (l_sh[2] > 0.25) or (r_sh[2] > 0.25)
-                valid_hips = (l_hip[2] > 0.25) or (r_hip[2] > 0.25)
+            valid_shoulders = (l_sh[2] > 0.25) or (r_sh[2] > 0.25)
+            valid_hips = (l_hip[2] > 0.25) or (r_hip[2] > 0.25)
 
-                if valid_shoulders and valid_hips:
-                    sh_x = (l_sh[0] + r_sh[0]) / 2.0 if (l_sh[2] > 0.25 and r_sh[2] > 0.25) else (l_sh[0] if l_sh[2] > 0.25 else r_sh[0])
-                    sh_y = (l_sh[1] + r_sh[1]) / 2.0 if (l_sh[2] > 0.25 and r_sh[2] > 0.25) else (l_sh[1] if l_sh[2] > 0.25 else r_sh[1])
+            if valid_shoulders and valid_hips:
+                sh_x = (l_sh[0] + r_sh[0]) / 2.0 if (l_sh[2] > 0.25 and r_sh[2] > 0.25) else (l_sh[0] if l_sh[2] > 0.25 else r_sh[0])
+                sh_y = (l_sh[1] + r_sh[1]) / 2.0 if (l_sh[2] > 0.25 and r_sh[2] > 0.25) else (l_sh[1] if l_sh[2] > 0.25 else r_sh[1])
 
-                    hip_x = (l_hip[0] + r_hip[0]) / 2.0 if (l_hip[2] > 0.25 and r_hip[2] > 0.25) else (l_hip[0] if l_hip[2] > 0.25 else r_hip[0])
-                    hip_y = (l_hip[1] + r_hip[1]) / 2.0 if (l_hip[2] > 0.25 and r_hip[2] > 0.25) else (l_hip[1] if l_hip[2] > 0.25 else r_hip[1])
+                hip_x = (l_hip[0] + r_hip[0]) / 2.0 if (l_hip[2] > 0.25 and r_hip[2] > 0.25) else (l_hip[0] if l_hip[2] > 0.25 else r_hip[0])
+                hip_y = (l_hip[1] + r_hip[1]) / 2.0 if (l_hip[2] > 0.25 and r_hip[2] > 0.25) else (l_hip[1] if l_hip[2] > 0.25 else r_hip[1])
 
-                    dx = abs(sh_x - hip_x)
-                    dy = abs(sh_y - hip_y)
+                dx = abs(sh_x - hip_x)
+                dy = abs(sh_y - hip_y)
 
-                    # Angle relative to horizontal ground (90 deg is vertical, 0 deg is flat horizontal)
-                    angle_rad = math.atan2(dy, max(1e-5, dx))
-                    torso_angle = math.degrees(angle_rad)
+                # Angle relative to horizontal ground (90 deg is vertical, 0 deg is flat horizontal)
+                angle_rad = math.atan2(dy, max(1e-5, dx))
+                torso_angle = math.degrees(angle_rad)
 
-        # 3. Robust fallback: if lower body/hips are out of frame (e.g. sitting at desk):
-        if torso_angle is None:
+        # 3. Straight Fall & Horizontal Recumbent Logic:
+        # In a straight fall (person lying along camera depth axis), 2D dx is small and dy is along the ground,
+        # which causes atan2(dy, dx) to falsely report 70-85 deg upright.
+        # But an aspect ratio AR >= 1.10 (e.g. 2.11 in user's camera) physically proves the body is lying flat on the floor!
+        if aspect_ratio >= self.aspect_ratio_fall_threshold:
+            # Person is lying horizontally on floor/bed (straight or lateral fall)
+            torso_angle = min(torso_angle if torso_angle is not None else 12.0, 15.0)
+        elif torso_angle is None:
             if head_is_upright:
                 # Head above shoulders -> unambiguously upright sitting or standing
                 torso_angle = 85.0
-            elif aspect_ratio >= 1.6:
+            elif aspect_ratio >= 1.05:
                 # Wide horizontal box with head NOT upright -> flat recumbent on floor
                 torso_angle = 15.0
             else:
                 torso_angle = 75.0
 
-        # If head is clearly upright, force torso angle to upright range (min 70 deg)
-        if head_is_upright and torso_angle < 50.0:
+        # If head is clearly upright AND person is tall/narrow, ensure upright angle
+        if head_is_upright and aspect_ratio < 1.05 and torso_angle < 50.0:
             torso_angle = 75.0
 
         return float(torso_angle), float(aspect_ratio), float(centroid_y)
@@ -268,8 +279,8 @@ class FallAnalyticsEngine:
         bbox = det["bbox"]
         centroid_y = (float(bbox[1]) + float(bbox[3])) / 2.0
 
-        # Condition 1: Horizontal Posture Signature
-        is_horizontal = (torso < self.torso_angle_fall_threshold)
+        # Condition 1: Horizontal Posture Signature (Lateral fall OR Straight fall / Recumbent)
+        is_horizontal = (torso < self.torso_angle_fall_threshold) or (ar >= self.aspect_ratio_fall_threshold)
         
         # Condition 2: Sudden Collapse Signature (from upright standing to horizontal in <20 frames)
         recent_torsos = [h["torso_angle"] for h in list(p_state.history)[-20:]]
@@ -281,8 +292,8 @@ class FallAnalyticsEngine:
             h["velocity"] > self.vertical_velocity_threshold for h in list(p_state.history)[-10:]
         )
 
-        # Condition 4: Upright Posture (Standing or Sitting upright)
-        is_upright = (torso > self.torso_angle_upright_threshold)
+        # Condition 4: Upright Posture (Standing or Sitting upright: must have upright torso angle AND compact upright aspect ratio)
+        is_upright = (torso > self.torso_angle_upright_threshold) and (ar < self.aspect_ratio_upright_threshold)
 
         # Condition 5: Safe Rest Zone / Bed Context
         in_safe_rest_zone = self._is_in_safe_rest_zone(bbox)
@@ -409,6 +420,14 @@ class FallAnalyticsEngine:
 
         iso_timestamp = datetime.now().isoformat(timespec="seconds")
 
+        # Capture high-resolution screenshot if provider registered
+        screenshot_url = None
+        if self.screenshot_provider:
+            try:
+                screenshot_url = self.screenshot_provider(p_state.track_id)
+            except Exception as e:
+                print(f"[!] Fall screenshot capture failed: {e}")
+
         event = FallAlertEvent(
             event="fall_detected",
             person_id=p_state.track_id,
@@ -417,7 +436,9 @@ class FallAnalyticsEngine:
             status="FALL_CONFIRMED",
             location="Room 101 - Primary Care Area",
             metrics=metrics,
-            privacy_applied=True
+            privacy_applied=True,
+            screenshot_url=screenshot_url,
+            alarm_state="TRIGGERED"
         )
 
         p_state.alert_dispatched = True
